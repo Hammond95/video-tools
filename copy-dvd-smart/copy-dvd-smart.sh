@@ -16,6 +16,7 @@ DEFAULT_MOUNT="/media/dvd"
 LOG_DIR="$HOME/.dvd_copy_logs"
 USE_DDRESCUE=false
 JUST_MOUNT=false
+SKIP_MOUNT=false
 VERBOSE=false
 DRY_RUN=false
 SUBFOLDER=""
@@ -54,6 +55,7 @@ OPTIONS:
     -l, --log-dir DIR     Log directory (default: $LOG_DIR)
     -r, --ddrescue        Use ddrescue for copying (more robust for damaged discs)
     -M, --mount-only      Only mount the DVD, don't copy
+    -s, --skip-mount      Skip mounting, use existing mount point
     -v, --verbose         Enable verbose output
     -n, --dry-run         Show what would be done without actually doing it
     -h, --help            Show this help message
@@ -77,6 +79,7 @@ EXAMPLES:
     $0 -d /dev/sr1 -o ~/Movies  # Use different device and output
     $0 -r -v                    # Use ddrescue with verbose output
     $0 -M                       # Only mount the DVD
+    $0 -s -m /media/dvd         # Skip mounting, use existing mount at /media/dvd
 
 EOF
 }
@@ -112,6 +115,7 @@ load_config() {
             LOG_DIR) LOG_DIR="$value" ;;
             USE_DDRESCUE) USE_DDRESCUE="$value" ;;
             VERBOSE) VERBOSE="$value" ;;
+            SKIP_MOUNT) SKIP_MOUNT="$value" ;;
             *) log_warning "Unknown config option: $key" ;;
         esac
     done < "$config_file"
@@ -147,6 +151,9 @@ USE_DDRESCUE=false
 
 # Enable verbose output
 VERBOSE=false
+
+# Skip mounting (use existing mount point)
+SKIP_MOUNT=false
 EOF
     
     log_success "Created default config file: $config_file"
@@ -179,6 +186,11 @@ check_dependencies() {
 validate_device() {
     local device="$1"
     
+    if [ "$SKIP_MOUNT" = true ]; then
+        log_debug "Skipping device validation (skip-mount mode)"
+        return 0
+    fi
+    
     if [ ! -b "$device" ]; then
         log_error "Device $device not found or not a block device."
         log_info "Available DVD devices:"
@@ -193,6 +205,30 @@ validate_device() {
 mount_dvd() {
     local device="$1"
     local mount_point="$2"
+    
+    if [ "$SKIP_MOUNT" = true ]; then
+        log_info "Skip-mount mode: using existing mount point $mount_point"
+        
+        if [ ! -d "$mount_point" ]; then
+            log_error "Mount point $mount_point does not exist"
+            exit 1
+        fi
+        
+        if [ "$DRY_RUN" = true ]; then
+            log_debug "DRY RUN: Would use existing mount point $mount_point"
+            echo "$mount_point"
+            return 0
+        fi
+        
+        # Check if the mount point actually contains DVD content
+        if [ ! -f "$mount_point/VIDEO_TS/VIDEO_TS.IFO" ] && [ ! -f "$mount_point/VIDEO_TS/VIDEO_TS.BUP" ]; then
+            log_warning "Mount point $mount_point doesn't appear to contain DVD content"
+            log_info "Expected DVD structure not found. Continuing anyway..."
+        fi
+        
+        echo "$mount_point"
+        return 0
+    fi
     
     # Check if already mounted
     local current_mount=$(findmnt -nr -S "$device" -o TARGET)
@@ -328,6 +364,10 @@ main() {
                 JUST_MOUNT=true
                 shift
                 ;;
+            -s|--skip-mount)
+                SKIP_MOUNT=true
+                shift
+                ;;
             -v|--verbose)
                 VERBOSE=true
                 shift
@@ -375,16 +415,19 @@ main() {
     log_debug "  Mount point: $DEFAULT_MOUNT"
     log_debug "  Log directory: $LOG_DIR"
     log_debug "  Use ddrescue: $USE_DDRESCUE"
+    log_debug "  Skip mount: $SKIP_MOUNT"
     log_debug "  Verbose: $VERBOSE"
     log_debug "  Dry run: $DRY_RUN"
     
     # Check dependencies
     check_dependencies
     
-    # Validate device
-    validate_device "$DEVICE"
+    # Validate device (skip if using skip-mount mode)
+    if [ "$SKIP_MOUNT" = false ]; then
+        validate_device "$DEVICE"
+    fi
     
-    # Mount DVD
+    # Mount DVD (or use existing mount point)
     local mount_point
     mount_point=$(mount_dvd "$DEVICE" "$DEFAULT_MOUNT")
     

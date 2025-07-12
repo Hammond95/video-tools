@@ -20,7 +20,12 @@ USE_DDRESCUE=false
 # Enable verbose output for debugging
 VERBOSE=false
 
+# Skip mounting (use existing mount point)
+# Set to true if you want to skip the mounting step
+SKIP_MOUNT=false
+
 # Additional options you can set via command line:
 # --mount-only: Only mount the DVD, don't copy
+# --skip-mount: Skip mounting, use existing mount point
 # --dry-run: Show what would be done without actually doing it
 # --config: Use a different config file 
