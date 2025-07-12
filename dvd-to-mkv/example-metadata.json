@@ -1,0 +1,14 @@
+{
+  "title": "The Matrix",
+  "author": "Wachowski Sisters",
+  "comment": "Sci-fi classic about a computer hacker who discovers the truth about reality",
+  "year": "1999",
+  "genre": "Science Fiction",
+  "director": "Lana Wachowski, Lilly Wachowski",
+  "cast": "Keanu Reeves, Laurence Fishburne, Carrie-Anne Moss",
+  "rating": "R",
+  "runtime": "136 minutes",
+  "language": "English",
+  "subtitles": ["English", "Spanish", "French"],
+  "audio_tracks": ["English 5.1", "English 2.0", "Spanish 2.0"]
+} 

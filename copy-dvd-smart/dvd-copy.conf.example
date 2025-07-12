@@ -1,0 +1,26 @@
+# DVD Copy Configuration Example
+# Copy this file to ~/.config/dvd-copy.conf and modify as needed
+
+# DVD device path (usually /dev/sr0, but may be /dev/sr1, etc.)
+DEVICE="/dev/sr0"
+
+# Default output directory for copied DVDs
+DEST_DIR="$HOME/Videos/DVDs"
+
+# Default mount point for DVDs
+DEFAULT_MOUNT="/media/dvd"
+
+# Directory for log files (used with ddrescue)
+LOG_DIR="$HOME/.dvd_copy_logs"
+
+# Use ddrescue for copying (more robust for damaged discs)
+# Set to true if you want to use ddrescue instead of rsync
+USE_DDRESCUE=false
+
+# Enable verbose output for debugging
+VERBOSE=false
+
+# Additional options you can set via command line:
+# --mount-only: Only mount the DVD, don't copy
+# --dry-run: Show what would be done without actually doing it
+# --config: Use a different config file 

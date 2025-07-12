@@ -1,0 +1,83 @@
+# Logs
+*.log
+logs/
+*.log.*
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Video files (large files that shouldn't be in git)
+*.mp4
+*.avi
+*.mkv
+*.mov
+*.wmv
+*.flv
+*.webm
+*.m4v
+*.3gp
+*.ogv
+*.ts
+*.mts
+*.m2ts
+
+# Audio files
+*.mp3
+*.wav
+*.flac
+*.aac
+*.ogg
+*.wma
+
+# DVD/Blu-ray files
+*.iso
+*.vob
+*.ifo
+*.bup
+
+# Development files
+node_modules/
+dist/
+build/
+*.exe
+*.dmg
+*.app
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-*
+
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Wails build artifacts
+build/
+dist/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Package lock files (keep package.json but not lock files for libraries)
+package-lock.json.md5 
