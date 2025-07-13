@@ -34,6 +34,7 @@ show_usage() {
     echo "  -b, --backup           Create backup of original file before repair"
     echo "  -c, --check-only       Quick check for obvious issues"
     echo "  -d, --deep             Perform deep analysis (includes stress testing)"
+    echo "  -A, --aggressive-repair Force re-encoding to fix problematic files"
     echo "  -h, --help            Show this help message"
     echo ""
     echo "Examples:"
@@ -44,6 +45,7 @@ show_usage() {
     echo "  $0 movie.mkv --check-only       # Quick check"
     echo "  $0 movie.mkv --deep             # Deep analysis with stress testing"
     echo "  $0 movie.mkv --deep --verbose   # Deep analysis with detailed output"
+    echo "  $0 movie.mkv --aggressive-repair # Force re-encoding to fix issues"
 }
 
 # Function to check dependencies
@@ -366,13 +368,81 @@ attempt_repair() {
         print_success "Backup created: $backup_file"
     fi
     
-    # Attempt repair using ffmpeg with error correction
-    print_status "Running repair process..."
+    # Analyze the file to determine repair strategy
+    print_status "Analyzing file for repair strategy..."
     
-    local repair_cmd="ffmpeg -hide_banner -y -fflags +genpts -err_detect ignore_err -i \"$input_file\" -c copy -avoid_negative_ts make_zero \"$output_file\""
+    local stream_info=$(ffprobe -hide_banner -loglevel error -show_streams -print_format json "$input_file" 2>/dev/null)
+    local video_codec=$(echo "$stream_info" | jq -r '.streams | map(select(.codec_type == "video")) | .[0].codec_name // "unknown"')
+    local video_pix_fmt=$(echo "$stream_info" | jq -r '.streams | map(select(.codec_type == "video")) | .[0].pix_fmt // "unknown"')
     
-    if [ "$force" = true ]; then
-        repair_cmd="ffmpeg -hide_banner -y -fflags +genpts -err_detect ignore_err -i \"$input_file\" -c copy -avoid_negative_ts make_zero -max_muxing_queue_size 1024 \"$output_file\""
+    # Check for timing issues
+    local packet_info=$(ffprobe -hide_banner -loglevel error -show_packets -print_format json "$input_file" 2>/dev/null)
+    local negative_ts_count=$(echo "$packet_info" | jq '.packets | map(select(.pts < 0)) | length')
+    
+    print_status "Detected issues:"
+    echo "  Video codec: $video_codec"
+    echo "  Pixel format: $video_pix_fmt"
+    echo "  Negative timestamps: $negative_ts_count"
+    
+    # Determine repair strategy
+    local needs_reencode=false
+    local repair_cmd=""
+    
+    if [ "$video_pix_fmt" = "unknown" ] || [ "$video_codec" = "mpeg2video" ] || [ "$aggressive_repair" = true ]; then
+        print_status "Video needs re-encoding due to unknown pixel format, MPEG2 codec, or aggressive repair requested"
+        needs_reencode=true
+    fi
+    
+    if [ "$negative_ts_count" -gt 0 ]; then
+        print_status "Timing issues detected - will fix timestamps"
+    fi
+    
+    if [ "$aggressive_repair" = true ]; then
+        print_status "Aggressive repair mode: Will re-encode video and audio to ensure compatibility"
+    fi
+    
+    if [ "$needs_reencode" = true ]; then
+        # Re-encode video to fix pixel format and codec issues
+        print_status "Using re-encoding repair strategy..."
+        
+        # Get audio stream info to handle channel layout properly
+        local audio_info=$(ffprobe -hide_banner -loglevel error -show_streams -select_streams a:0 -print_format json "$input_file" 2>/dev/null)
+        local audio_channels=$(echo "$audio_info" | jq -r '.streams[0].channels // 2')
+        local audio_layout=$(echo "$audio_info" | jq -r '.streams[0].channel_layout // "stereo"')
+        
+        # Determine appropriate audio encoding parameters
+        local audio_params=""
+        if [ "$aggressive_repair" = true ]; then
+            if [ "$audio_channels" -gt 6 ]; then
+                # For high channel counts, convert to 5.1
+                audio_params="-c:a aac -ac 6"
+            elif [ "$audio_channels" -gt 2 ]; then
+                # For surround sound, preserve channels but ensure compatibility
+                audio_params="-c:a aac -ac $audio_channels"
+            else
+                # For stereo, use standard stereo
+                audio_params="-c:a aac -ac 2"
+            fi
+        else
+            audio_params="-c:a copy"
+        fi
+        
+        if [ "$aggressive_repair" = true ]; then
+            repair_cmd="ffmpeg -hide_banner -y -fflags +genpts -err_detect ignore_err -i \"$input_file\" -c:v libx264 -crf 20 -preset fast $audio_params -c:s copy -avoid_negative_ts make_zero -max_muxing_queue_size 2048 \"$output_file\""
+        elif [ "$force" = true ]; then
+            repair_cmd="ffmpeg -hide_banner -y -fflags +genpts -err_detect ignore_err -i \"$input_file\" -c:v libx264 -crf 18 -preset medium -c:a copy -c:s copy -avoid_negative_ts make_zero -max_muxing_queue_size 1024 \"$output_file\""
+        else
+            repair_cmd="ffmpeg -hide_banner -y -fflags +genpts -err_detect ignore_err -i \"$input_file\" -c:v libx264 -crf 20 -preset fast -c:a copy -c:s copy -avoid_negative_ts make_zero \"$output_file\""
+        fi
+    else
+        # Use copy mode but with timing fixes
+        print_status "Using copy mode with timing fixes..."
+        
+        if [ "$force" = true ]; then
+            repair_cmd="ffmpeg -hide_banner -y -fflags +genpts -err_detect ignore_err -i \"$input_file\" -c copy -avoid_negative_ts make_zero -max_muxing_queue_size 1024 \"$output_file\""
+        else
+            repair_cmd="ffmpeg -hide_banner -y -fflags +genpts -err_detect ignore_err -i \"$input_file\" -c copy -avoid_negative_ts make_zero \"$output_file\""
+        fi
     fi
     
     print_status "Command: $repair_cmd"
@@ -391,6 +461,30 @@ attempt_repair() {
         
         if [ $verify_exit_code -eq 0 ]; then
             print_success "Repaired file verification passed"
+            
+            # Show repair results
+            print_status "Repair results:"
+            local repaired_stream_info=$(ffprobe -hide_banner -loglevel error -show_streams -print_format json "$output_file" 2>/dev/null)
+            local repaired_video_codec=$(echo "$repaired_stream_info" | jq -r '.streams | map(select(.codec_type == "video")) | .[0].codec_name // "unknown"')
+            local repaired_pix_fmt=$(echo "$repaired_stream_info" | jq -r '.streams | map(select(.codec_type == "video")) | .[0].pix_fmt // "unknown"')
+            
+            echo "  Original video: $video_codec ($video_pix_fmt)"
+            echo "  Repaired video: $repaired_video_codec ($repaired_pix_fmt)"
+            
+            if [ "$needs_reencode" = true ]; then
+                print_success "Video was re-encoded to fix pixel format issues"
+            fi
+            
+            # Check if timing issues were fixed
+            local repaired_packet_info=$(ffprobe -hide_banner -loglevel error -show_packets -print_format json "$output_file" 2>/dev/null)
+            local repaired_negative_ts=$(echo "$repaired_packet_info" | jq '.packets | map(select(.pts < 0)) | length')
+            
+            if [ "$repaired_negative_ts" -eq 0 ]; then
+                print_success "Negative timestamps were fixed"
+            else
+                print_warning "Some negative timestamps remain ($repaired_negative_ts found)"
+            fi
+            
         else
             print_warning "Repaired file verification failed - some issues may remain"
         fi
@@ -405,7 +499,26 @@ attempt_repair() {
             echo "  Error output:"
             echo "$repair_output" | sed 's/^/    /'
         fi
-        return 1
+        
+        # Try fallback repair with more aggressive settings
+        print_status "Attempting fallback repair with more aggressive settings..."
+        
+        # Use conservative audio settings for fallback
+        local fallback_cmd="ffmpeg -hide_banner -y -fflags +genpts -err_detect ignore_err -i \"$input_file\" -c:v libx264 -crf 23 -preset fast -c:a aac -ac 2 -c:s copy -avoid_negative_ts make_zero -max_muxing_queue_size 2048 \"$output_file\""
+        
+        print_status "Fallback command: $fallback_cmd"
+        local fallback_output=$(eval "$fallback_cmd" 2>&1)
+        local fallback_exit_code=$?
+        
+        if [ $fallback_exit_code -eq 0 ] && [ -f "$output_file" ] && [ -s "$output_file" ]; then
+            print_success "Fallback repair completed successfully"
+            echo "  Original file: $input_file"
+            echo "  Repaired file: $output_file"
+            return 0
+        else
+            print_error "Fallback repair also failed"
+            return 1
+        fi
     fi
 }
 
@@ -416,8 +529,8 @@ deep_stream_analysis() {
     
     print_header "Deep Stream Analysis"
     
-    # Get detailed stream information
-    local stream_info=$(ffprobe -hide_banner -loglevel error -show_streams -show_packets -print_format json "$file" 2>/dev/null)
+    # Get detailed stream information (without packets to avoid performance issues)
+    local stream_info=$(ffprobe -hide_banner -loglevel error -show_streams -print_format json "$file" 2>/dev/null)
     
     if [ -z "$stream_info" ]; then
         print_error "Could not perform deep stream analysis"
@@ -534,46 +647,81 @@ check_timing_issues() {
     
     echo "  Total packets: $packet_count"
     
-    # Check for negative timestamps
+    # Check for negative timestamps (efficient jq query)
     local negative_ts_count=$(echo "$packets" | jq 'map(select(.pts < 0)) | length')
     if [ "$negative_ts_count" -gt 0 ]; then
         print_warning "Found $negative_ts_count packets with negative timestamps"
         ((issues_found++))
     fi
     
-    # Check for large timestamp gaps
-    local large_gaps=0
-    local prev_pts=0
-    local first_packet=true
+    # For large files, use sampling to avoid performance issues
+    local sample_size=1000
+    local use_sampling=false
     
-    while IFS= read -r pts; do
-        if [ "$first_packet" = true ]; then
-            prev_pts="$pts"
-            first_packet=false
-            continue
-        fi
-        
-        if [ "$pts" != "null" ] && [ "$prev_pts" != "null" ]; then
-            local gap=$(echo "$pts - $prev_pts" | bc -l 2>/dev/null || echo "0")
-            local gap_abs=$(echo "$gap" | sed 's/-//')
-            
-            if (( $(echo "$gap_abs > 10.0" | bc -l) )); then
-                ((large_gaps++))
-            fi
-        fi
-        prev_pts="$pts"
-    done < <(echo "$packets" | jq -r '.[].pts')
-    
-    if [ "$large_gaps" -gt 0 ]; then
-        print_warning "Found $large_gaps large timestamp gaps (>10s)"
-        ((issues_found++))
+    if [ "$packet_count" -gt 10000 ]; then
+        use_sampling=true
+        echo "  Large file detected, using sampling for timing analysis"
+        echo "  Sample size: $sample_size packets"
     fi
     
-    # Check for duplicate timestamps
-    local duplicate_ts=$(echo "$packets" | jq -r '.[].pts' | sort | uniq -d | wc -l)
-    if [ "$duplicate_ts" -gt 0 ]; then
-        print_warning "Found $duplicate_ts duplicate timestamps"
-        ((issues_found++))
+    if [ "$use_sampling" = true ]; then
+        # Use jq to sample packets and analyze timing gaps
+        local sampled_packets=$(echo "$packets" | jq ".[0:$sample_size]")
+        
+        # Check for large timestamp gaps in sample (using jq)
+        local large_gaps=$(echo "$sampled_packets" | jq '
+            . as $packets |
+            if length > 1 then
+                [range(1; length)] | map(
+                    $packets[.] as $curr |
+                    $packets[.-1] as $prev |
+                    if ($curr.pts != null and $prev.pts != null) then
+                        ($curr.pts - $prev.pts) | if . > 10 or . < -10 then 1 else 0 end
+                    else 0 end
+                ) | add
+            else 0 end
+        ')
+        
+        if [ "$large_gaps" -gt 0 ]; then
+            print_warning "Found $large_gaps large timestamp gaps (>10s) in sample"
+            print_warning "This may indicate timing issues throughout the file"
+            ((issues_found++))
+        fi
+        
+        # Check for duplicate timestamps in sample
+        local duplicate_ts=$(echo "$sampled_packets" | jq -r '.[].pts' | sort | uniq -d | wc -l)
+        if [ "$duplicate_ts" -gt 0 ]; then
+            print_warning "Found $duplicate_ts duplicate timestamps in sample"
+            ((issues_found++))
+        fi
+        
+    else
+        # For smaller files, do full analysis but more efficiently
+        # Check for large timestamp gaps using jq
+        local large_gaps=$(echo "$packets" | jq '
+            . as $packets |
+            if length > 1 then
+                [range(1; length)] | map(
+                    $packets[.] as $curr |
+                    $packets[.-1] as $prev |
+                    if ($curr.pts != null and $prev.pts != null) then
+                        ($curr.pts - $prev.pts) | if . > 10 or . < -10 then 1 else 0 end
+                    else 0 end
+                ) | add
+            else 0 end
+        ')
+        
+        if [ "$large_gaps" -gt 0 ]; then
+            print_warning "Found $large_gaps large timestamp gaps (>10s)"
+            ((issues_found++))
+        fi
+        
+        # Check for duplicate timestamps
+        local duplicate_ts=$(echo "$packets" | jq -r '.[].pts' | sort | uniq -d | wc -l)
+        if [ "$duplicate_ts" -gt 0 ]; then
+            print_warning "Found $duplicate_ts duplicate timestamps"
+            ((issues_found++))
+        fi
     fi
     
     if [ $issues_found -gt 0 ]; then
@@ -867,6 +1015,7 @@ main() {
     local backup=false
     local check_only=false
     local deep_analysis=false
+    local aggressive_repair=false
     
     # Parse command line arguments
     while [[ $# -gt 0 ]]; do
@@ -901,6 +1050,11 @@ main() {
                 ;;
             -d|--deep)
                 deep_analysis=true
+                shift
+                ;;
+            -A|--aggressive-repair)
+                aggressive_repair=true
+                repair=true  # Aggressive repair implies repair
                 shift
                 ;;
             -h|--help)
