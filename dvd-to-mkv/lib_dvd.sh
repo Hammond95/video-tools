@@ -50,11 +50,11 @@ validate_dvd_structure() {
     if [ -d "$dvd_path/VIDEO_TS" ]; then
         print_status "Found VIDEO_TS directory" >&2
         local video_ts_path="$dvd_path/VIDEO_TS"
-    elif [ -f "$dvd_path/VIDEO_TS.IFO" ]; then
+    elif [ -f "$dvd_path/VIDEO_TS.IFO" ] || [ -f "$dvd_path/VIDEO_TS.ifo" ]; then
         print_status "Found VIDEO_TS files in root directory" >&2
         local video_ts_path="$dvd_path"
     else
-        local vts_count=$(find "$dvd_path" -name "VTS_*_1.VOB" 2>/dev/null | wc -l)
+        local vts_count=$(find "$dvd_path" -iname "VTS_*_1.VOB" 2>/dev/null | wc -l)
         if [ "$vts_count" -gt 0 ]; then
             print_status "Found VTS files in root directory (ripped DVD structure)" >&2
             local video_ts_path="$dvd_path"
@@ -65,11 +65,16 @@ validate_dvd_structure() {
     fi
     local required_files=("VIDEO_TS.IFO" "VIDEO_TS.VOB")
     for file in "${required_files[@]}"; do
-        if [ ! -f "$video_ts_path/$file" ]; then
+        local base_name="${file%.*}"
+        local ext="${file##*.}"
+        local lower_ext=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
+        local upper_ext=$(echo "$ext" | tr '[:lower:]' '[:upper:]')
+        
+        if [ ! -f "$video_ts_path/$file" ] && [ ! -f "$video_ts_path/${base_name}.${lower_ext}" ]; then
             print_warning "Missing optional DVD file: $file" >&2
         fi
     done
-    local vts_count=$(find "$video_ts_path" -name "VTS_*_1.VOB" 2>/dev/null | wc -l)
+    local vts_count=$(find "$video_ts_path" -iname "VTS_*_1.VOB" 2>/dev/null | wc -l)
     if [ "$vts_count" -eq 0 ]; then
         print_warning "No VTS_*_1.VOB files found. This might not be a movie DVD." >&2
     else
@@ -85,12 +90,12 @@ analyze_dvd_titles() {
     local titles=()
     local title_info=()
     while IFS= read -r -d '' vob_file; do
-        local title_num=$(basename "$vob_file" | sed 's/VTS_\([0-9]*\)_1\.VOB/\1/')
+        local title_num=$(basename "$vob_file" | sed 's/VTS_\([0-9]*\)_1\.VOB/\1/i')
         local title_dir=$(dirname "$vob_file")
         local file_size=$(ls -lh "$vob_file" 2>/dev/null | awk '{print $5}' || echo "unknown")
         titles+=("$title_num")
         title_info+=("Title $title_num: Size=$file_size")
-    done < <(find "$dvd_path" -name "VTS_*_1.VOB" -print0 2>/dev/null)
+    done < <(find "$dvd_path" -iname "VTS_*_1.VOB" -print0 2>/dev/null)
     IFS=$'\n' titles=($(sort -n <<<"${titles[*]}"))
     unset IFS
     echo "${titles[@]}"
@@ -103,8 +108,8 @@ get_stream_info() {
     local title_num="$2"
     local title_num_padded=$(printf '%02d' "$title_num")
     echo "DEBUG: get_stream_info: dvd_path=[$dvd_path] title_num=[$title_num] (padded: $title_num_padded)"
-    echo "DEBUG: Running: find \"$dvd_path\" -name \"VTS_${title_num_padded}_1.VOB\""
-    local vob_file=$(find "$dvd_path" -name "VTS_${title_num_padded}_1.VOB" 2>/dev/null | head -1)
+    echo "DEBUG: Running: find \"$dvd_path\" -iname \"VTS_${title_num_padded}_1.VOB\""
+    local vob_file=$(find "$dvd_path" -iname "VTS_${title_num_padded}_1.VOB" 2>/dev/null | head -1)
     echo "DEBUG: get_stream_info: vob_file=[$vob_file]"
     if [ -z "$vob_file" ]; then
         print_error "Title $title_num not found"
@@ -124,11 +129,11 @@ extract_dvd_metadata() {
     local title_num="$3"
     local title_num_padded=$(printf '%02d' "$title_num")
     print_status "Extracting DVD metadata..."
-    local dvd_structure=$(find "$dvd_path" -name "*.VOB" -o -name "*.IFO" -o -name "*.BUP" 2>/dev/null | \
+    local dvd_structure=$(find "$dvd_path" -iname "*.VOB" -o -iname "*.IFO" -o -iname "*.BUP" 2>/dev/null | \
         sort | jq -R -s 'split("\n")[:-1]' 2>/dev/null || echo "[]")
     local title_info=$(analyze_dvd_titles "$dvd_path" 2>/dev/null | tail -n +2 | \
         jq -R -s 'split("\n")[:-1]' 2>/dev/null || echo "[]")
-    local vob_file=$(find "$dvd_path" -name "VTS_${title_num_padded}_1.VOB" 2>/dev/null | head -1)
+    local vob_file=$(find "$dvd_path" -iname "VTS_${title_num_padded}_1.VOB" 2>/dev/null | head -1)
     local stream_info="{}"
     if [ -n "$vob_file" ]; then
         stream_info=$(ffprobe -hide_banner -loglevel error -probesize 10000000 -analyzeduration 10000000 \
@@ -176,7 +181,7 @@ auto_select_title() {
     
     # Find all VOB files and get their sizes
     while IFS= read -r -d '' vob_file; do
-        local title_num=$(basename "$vob_file" | sed 's/VTS_\([0-9]*\)_1\.VOB/\1/')
+        local title_num=$(basename "$vob_file" | sed 's/VTS_\([0-9]*\)_1\.VOB/\1/i')
         local file_size=$(stat -f%z "$vob_file" 2>/dev/null || echo "0")
         
         # Only process if we got a valid title number
@@ -197,7 +202,7 @@ auto_select_title() {
                 title_sizes+=("$file_size")
             fi
         fi
-    done < <(find "$dvd_path" -name "VTS_*_1.VOB" -print0 2>/dev/null)
+    done < <(find "$dvd_path" -iname "VTS_*_1.VOB" -print0 2>/dev/null)
     
     if [ ${#titles[@]} -eq 0 ]; then
         print_error "No titles found" >&2

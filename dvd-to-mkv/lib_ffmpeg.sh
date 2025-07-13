@@ -132,7 +132,7 @@ validate_subtitle_streams() {
     
     # Get subtitle stream count for the title
     local title_num_padded=$(printf '%02d' "$title_num")
-    local vob_file=$(find "$video_ts_path" -name "VTS_${title_num_padded}_1.VOB" 2>/dev/null | head -1)
+    local vob_file=$(find "$video_ts_path" -iname "VTS_${title_num_padded}_1.VOB" 2>/dev/null | head -1)
     
     if [ -z "$vob_file" ]; then
         print_error "Could not find VOB file for title $title_num"
@@ -166,7 +166,7 @@ validate_audio_streams() {
     
     # Get audio stream count for the title
     local title_num_padded=$(printf '%02d' "$title_num")
-    local vob_file=$(find "$video_ts_path" -name "VTS_${title_num_padded}_1.VOB" 2>/dev/null | head -1)
+    local vob_file=$(find "$video_ts_path" -iname "VTS_${title_num_padded}_1.VOB" 2>/dev/null | head -1)
     
     if [ -z "$vob_file" ]; then
         print_error "Could not find VOB file for title $title_num"
@@ -192,7 +192,7 @@ get_stream_info() {
     local title_num="$2"
     
     local title_num_padded=$(printf '%02d' "$title_num")
-    local vob_file=$(find "$video_ts_path" -name "VTS_${title_num_padded}_1.VOB" 2>/dev/null | head -1)
+    local vob_file=$(find "$video_ts_path" -iname "VTS_${title_num_padded}_1.VOB" 2>/dev/null | head -1)
     
     if [ -z "$vob_file" ]; then
         print_error "Could not find VOB file for title $title_num"
@@ -354,13 +354,16 @@ concatenate_vob_files() {
     local use_ffmpeg_concat="$3"
     
     local title_num_padded=$(printf '%02d' "$title_num")
-    local concatenated_vob="/tmp/concatenated_${title_num}.vob"
+    local process_id=$$
+    local timestamp=$(date +%s)
+    local unique_id="${process_id}_${timestamp}"
+    local concatenated_vob="/tmp/concatenated_${title_num}_${unique_id}.vob"
     
     # Find all VOB parts for this title
     local vob_parts=()
     while IFS= read -r -d '' file; do
         vob_parts+=("$file")
-    done < <(find "$video_ts_path" -name "VTS_${title_num_padded}_*.VOB" -print0 2>/dev/null | sort -z)
+    done < <(find "$video_ts_path" -iname "VTS_${title_num_padded}_*.VOB" -print0 2>/dev/null | sort -z)
     
     if [ ${#vob_parts[@]} -eq 0 ]; then
         print_error "No VOB files found for title $title_num" >&2
@@ -377,7 +380,7 @@ concatenate_vob_files() {
     
     if [ "$use_ffmpeg_concat" = true ]; then
         # Use ffmpeg concat demuxer
-        local concat_file="/tmp/concat_${title_num}.txt"
+        local concat_file="/tmp/concat_${title_num}_${unique_id}.txt"
         
         print_status "Creating concat file: $concat_file" >&2
         
@@ -423,6 +426,7 @@ run_ffmpeg_conversion() {
     local ffmpeg_cmd="$1"
     local output_file="$2"
     local title_num="$3"
+    local input_file="$4"
     
     print_status "Starting conversion..."
     print_status "Command: $ffmpeg_cmd"
@@ -444,9 +448,12 @@ run_ffmpeg_conversion() {
                 print_warning "This may indicate some warnings during conversion, but the file should be playable"
             fi
             
-            # Clean up concatenated VOB file if it was created
-            if [ -f "/tmp/concatenated_${title_num}.vob" ]; then
-                rm "/tmp/concatenated_${title_num}.vob"
+            # Clean up concatenated VOB file if it was created (and is a temporary file)
+            if [ -n "$input_file" ] && [[ "$input_file" == /tmp/concatenated_* ]]; then
+                if [ -f "$input_file" ]; then
+                    rm "$input_file"
+                    print_status "Cleaned up temporary concatenated VOB file: $input_file"
+                fi
             fi
             
             # Show file info
@@ -458,17 +465,23 @@ run_ffmpeg_conversion() {
             return 0
         else
             print_error "Conversion failed: Output file is too small ($file_size bytes)"
-            # Clean up concatenated VOB file if it was created
-            if [ -f "/tmp/concatenated_${title_num}.vob" ]; then
-                rm "/tmp/concatenated_${title_num}.vob"
+            # Clean up concatenated VOB file if it was created (and is a temporary file)
+            if [ -n "$input_file" ] && [[ "$input_file" == /tmp/concatenated_* ]]; then
+                if [ -f "$input_file" ]; then
+                    rm "$input_file"
+                    print_status "Cleaned up temporary concatenated VOB file: $input_file"
+                fi
             fi
             return 1
         fi
     else
         print_error "Conversion failed: Output file was not created"
-        # Clean up concatenated VOB file if it was created
-        if [ -f "/tmp/concatenated_${title_num}.vob" ]; then
-            rm "/tmp/concatenated_${title_num}.vob"
+        # Clean up concatenated VOB file if it was created (and is a temporary file)
+        if [ -n "$input_file" ] && [[ "$input_file" == /tmp/concatenated_* ]]; then
+            if [ -f "$input_file" ]; then
+                rm "$input_file"
+                print_status "Cleaned up temporary concatenated VOB file: $input_file"
+            fi
         fi
         return 1
     fi

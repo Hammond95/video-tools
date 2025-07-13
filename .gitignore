@@ -80,4 +80,6 @@ dist/
 .env.*.local
 
 # Package lock files (keep package.json but not lock files for libraries)
-package-lock.json.md5 
+package-lock.json.md5
+
+video-compare/video-compare-native-gui/video-compare-native-gui

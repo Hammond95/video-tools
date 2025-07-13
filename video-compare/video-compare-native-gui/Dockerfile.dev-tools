@@ -1,0 +1,51 @@
+# Development tools Dockerfile for video-compare-native-gui
+FROM golang:1.23.0-alpine
+
+# Install essential build tools and dependencies
+RUN apk add --no-cache \
+    gcc \
+    musl-dev \
+    pkgconfig \
+    libc6-compat \
+    git \
+    make \
+    bash \
+    curl \
+    jq \
+    ca-certificates \
+    # GUI dependencies for development
+    libx11-dev \
+    libxrandr-dev \
+    libxinerama-dev \
+    libxcursor-dev \
+    libxi-dev \
+    mesa-dev \
+    alsa-lib-dev \
+    pulseaudio-dev \
+    vlc-dev
+
+# Set Go environment variables
+ENV GO111MODULE=on
+ENV CGO_ENABLED=1
+
+# Install development tools with specific versions for consistency
+RUN go install honnef.co/go/tools/cmd/staticcheck@latest && \
+    go install golang.org/x/tools/cmd/goimports@latest && \
+    go install github.com/cosmtrek/air@latest && \
+    go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest && \
+    go install golang.org/x/lint/golint@latest && \
+    go install github.com/fzipp/gocyclo/cmd/gocyclo@latest && \
+    go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
+
+# Create a non-root user for running tools
+RUN addgroup -g 1000 devuser && \
+    adduser -D -s /bin/bash -u 1000 -G devuser devuser
+
+# Set working directory
+WORKDIR /app
+
+# Switch to non-root user
+USER devuser
+
+# Default command
+CMD ["bash"] 

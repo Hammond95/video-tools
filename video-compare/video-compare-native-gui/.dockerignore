@@ -1,0 +1,38 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+*.md
+
+# Build artifacts
+video-compare-native-gui
+video-compare-native-gui-*
+*.exe
+
+# Test files
+coverage.out
+coverage.html
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+
+# Docker files
+Dockerfile
+.dockerignore
+
+# Makefile (not needed in container)
+Makefile 

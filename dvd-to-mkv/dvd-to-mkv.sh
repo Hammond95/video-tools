@@ -230,7 +230,7 @@ metadata_output="${output_with_quality%.mkv}_metadata.json"
 extract_dvd_metadata "$video_ts_path" "$metadata_output" "$TITLE_NUM"
 
 # Run conversion
-run_ffmpeg_conversion "$ffmpeg_cmd" "$output_with_quality" "$TITLE_NUM"
+run_ffmpeg_conversion "$ffmpeg_cmd" "$output_with_quality" "$TITLE_NUM" "$input_file"
 
 if [ $? -eq 0 ]; then
     print_success "Metadata file: $metadata_output"

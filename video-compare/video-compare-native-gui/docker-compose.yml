@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  video-compare-native-gui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: video-compare-native-gui:latest
+    container_name: video-compare-native-gui
+    environment:
+      - DISPLAY=${DISPLAY}
+      - VLC_PLUGIN_PATH=/usr/lib/vlc/plugins
+    volumes:
+      # X11 socket for GUI
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # Home directory for file access
+      - ${HOME}:/home/user:rw
+      # Optional: mount a specific video directory
+      - ./videos:/videos:ro
+    network_mode: host
+    privileged: false
+    restart: unless-stopped
+    # For development, you can override the entrypoint
+    # entrypoint: ["sleep", "infinity"]
+
+  # Development service (optional)
+  video-compare-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    image: video-compare-native-gui:dev
+    container_name: video-compare-native-gui-dev
+    environment:
+      - DISPLAY=${DISPLAY}
+      - VLC_PLUGIN_PATH=/usr/lib/vlc/plugins
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ${HOME}:/home/user:rw
+      - .:/app:rw  # Mount source code for development
+    network_mode: host
+    privileged: false
+    restart: unless-stopped
+    profiles:
+      - dev 

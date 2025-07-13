@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  video-compare-native-gui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: video-compare-native-gui:latest
+    container_name: video-compare-native-gui
+    environment:
+      - DISPLAY=host.docker.internal:0
+      - VLC_PLUGIN_PATH=/usr/lib/vlc/plugins
+    volumes:
+      # Home directory for file access
+      - ${HOME}:/home/user:rw
+      # Optional: mount a specific video directory
+      - ./videos:/videos:ro
+    network_mode: host
+    privileged: false
+    restart: unless-stopped
+    # For macOS, we need to use host.docker.internal for X11
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Alternative approach using socat for X11 forwarding
+  video-compare-x11:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: video-compare-native-gui:latest
+    container_name: video-compare-native-gui-x11
+    environment:
+      - DISPLAY=:0
+      - VLC_PLUGIN_PATH=/usr/lib/vlc/plugins
+    volumes:
+      - ${HOME}:/home/user:rw
+      - ./videos:/videos:ro
+    ports:
+      - "6000:6000"  # X11 port
+    command: >
+      sh -c "
+        apk add --no-cache socat &&
+        socat TCP-LISTEN:6000,fork TCP:host.docker.internal:6000 &
+        ./video-compare-native-gui
+      "
+    extra_hosts:
+      - "host.docker.internal:host-gateway" 
